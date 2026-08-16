@@ -1,10 +1,14 @@
-FROM python:3.10-slim
+FROM python:3.12-slim
 
 WORKDIR /app
 
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-COPY NLPCLI.py .
+COPY nlpcli.py test_nlpcli.py ./
 
-ENTRYPOINT ["python", "NLPCLI.py"]
+# Nothing here needs root, and the container is where any approved command runs.
+RUN useradd --create-home app
+USER app
+
+ENTRYPOINT ["python", "nlpcli.py"]
