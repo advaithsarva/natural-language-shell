@@ -1,7 +1,14 @@
 """nlpcli — translate natural language into a read-only Linux command.
 
-INVARIANT: nothing is executed that `check()` has not approved.
-The model chooses the wording of a command; it never decides whether it runs.
+INVARIANT: nothing is executed that `check()` has not approved, and `check()`
+approves only programs that cannot launch another program, write a file, or
+run forever. The model chooses the wording of a command; it never decides
+whether it runs.
+
+The second half of that sentence is load-bearing and was missing for a while.
+"Nothing runs that check() approved" is true of any gate, including one that
+approves everything — `env` sat in the allowlist, and `env sh -c '<anything>'`
+passed every test in the suite.
 
 The original version (commit 0810245) enforced safety by asking the model to
 print the string "UNSUPPORTED" and comparing against it. Anything else the
@@ -20,21 +27,40 @@ MAX_LEN = 300
 # Read-only inspection tools only. Anything that installs, writes, downloads or
 # runs another program (apt, pip, curl, wget, xargs, docker, git, bash) is out
 # by construction — adding one is a deliberate act, not an oversight.
+#
+# `env` was in this list and should never have been: it is a program launcher,
+# and only argv[0] of each segment is checked, so `env sh -c '<anything>'`
+# passed the whole gate. `sed` is gone for the same class of reason — its
+# script language has its own `w file` (write) and GNU `e` (execute) commands,
+# which live inside a quoted string where UNSAFE_CHARS cannot see them.
+# `printenv`, `grep`, `cut` and `tr` cover what the two were being used for.
 ALLOWED = frozenset("""
 ls pwd whoami id date uptime uname hostname arch
 cat head tail nl wc sort uniq cut tr column
-grep egrep fgrep awk sed
+grep egrep fgrep awk
 find stat file basename dirname readlink
 df du free ps lsblk lscpu blkid
-env printenv which echo printf
+printenv which echo printf
 ip ss netstat dmesg
 """.split())
 
-# Flags that turn an allowlisted read-only tool into a writing one.
+# Flags and subcommands that turn an allowlisted read-only tool into one that
+# writes, executes, or blocks forever. Same principle as the allowlist: the
+# check is on the words, so every word that changes what the program *is*
+# has to be named here.
 BANNED_ARGS = {
     "find": frozenset({"-delete", "-exec", "-execdir", "-ok", "-okdir",
                        "-fprint", "-fprintf", "-fls"}),
-    "sed": frozenset({"-i", "--in-place"}),
+    # -f/--file reads the awk program from a file, so the braces that
+    # UNSAFE_CHARS relies on never appear in the command line at all.
+    "awk": frozenset({"-f", "--file", "-e", "--source"}),
+    # `ip` is only an inspection tool in its show forms; these mutate.
+    "ip": frozenset({"add", "del", "delete", "set", "change", "replace",
+                     "flush", "append"}),
+    # -w follows forever and would hang subprocess.run; the rest clear the
+    # kernel ring buffer, which is a write.
+    "dmesg": frozenset({"-C", "--clear", "-c", "--read-clear",
+                        "-w", "--follow"}),
 }
 
 # `|` is the only shell operator allowed. Everything here can chain, redirect,

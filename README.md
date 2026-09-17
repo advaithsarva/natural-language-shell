@@ -27,9 +27,16 @@ docker run --rm -e OPENAI_API_KEY=$OPENAI_API_KEY nlpcli --text "delete everythi
    **allowlist of read-only tools** (`ls`, `grep`, `find`, `df`, `ps`, …).
    Anything that installs, writes, downloads, or runs another program — `apt`,
    `pip`, `curl`, `wget`, `xargs`, `git`, `docker`, `bash`, `sudo` — is absent
-   by construction.
-3. Flags that turn an allowlisted tool into a writing one are rejected:
-   `find -delete`, `find -exec`, `sed -i`.
+   by construction. So is anything that *launches* one: `env` is not a
+   read-only tool, it is a way to start any program at all, and only `argv[0]`
+   of a segment is ever checked.
+3. Flags and subcommands that turn an allowlisted tool into a writing one are
+   rejected: `find -delete`, `find -exec`, `awk -f`, `ip link set`,
+   `dmesg --clear`.
+4. A tool whose *own* script language can write or execute is not allowlisted
+   at all. `sed` is out: `sed 'w /path'` writes a file and GNU `sed 's/x/y/e'`
+   runs a shell command, both from inside a quoted string where the
+   metacharacter ban cannot reach.
 
 The model is still asked to answer `UNSUPPORTED` for out-of-scope requests, but
 nothing depends on it doing so. `UNSUPPORTED` simply fails the allowlist like
